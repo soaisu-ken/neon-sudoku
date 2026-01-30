@@ -1,0 +1,423 @@
+<div id="sudoku-app-container" style="position:relative; width: 100%; max-width: 600px; margin: 0 auto; font-family: 'Segoe UI', sans-serif; background-color: #0f172a; color: #e2e8f0; padding: 20px; border-radius: 15px; box-sizing: border-box; border: 2px solid #38bdf8; box-shadow: 0 0 20px rgba(56, 189, 248, 0.2); text-align: center; overflow: hidden;">
+
+    <canvas id="sakura-canvas" style="position:absolute; top:0; left:0; pointer-events:none; z-index:100;"></canvas>
+
+    <style>
+        #sudoku-app-container * { box-sizing: border-box; }
+        #sudoku-app-container h2 { letter-spacing: 4px; color: #38bdf8; text-transform: uppercase; margin: 0 0 10px 0; font-size: 24px; }
+        #sudoku-app-container .timer { font-family: 'Consolas', monospace; color: #94a3b8; margin-bottom: 10px; font-size: 18px; }
+        #sudoku-app-container .controls { margin-bottom: 20px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+        #sudoku-app-container button { background: transparent; border: 1px solid #38bdf8; color: #38bdf8; padding: 8px 12px; border-radius: 6px; cursor: pointer; transition: 0.3s; font-weight: bold; font-size: 13px; text-transform: uppercase; }
+        #sudoku-app-container button:hover { background: #38bdf8; color: #0f172a; box-shadow: 0 0 10px #38bdf8; }
+        #sudoku-app-container button:disabled { opacity: 0.5; cursor: not-allowed; }
+        #sudoku-app-container .answer-btn { border-color: #22c55e; color: #22c55e; }
+        #sudoku-app-container .answer-btn:hover { background: #22c55e; color: #0f172a; box-shadow: 0 0 10px #22c55e; }
+        #sudoku-app-container #sudoku-board { display: inline-grid; grid-template-columns: repeat(9, 38px); grid-template-rows: repeat(9, 38px); gap: 1px; background-color: #475569; border: 3px solid #38bdf8; margin: 0 auto 20px; transition: transform 0.1s; }
+        #sudoku-app-container .cell { width: 38px; height: 38px; background-color: #1e293b; display: flex; align-items: center; justify-content: center; font-size: 20px; cursor: pointer; user-select: none; font-family: 'Consolas', monospace; font-weight: bold; transition: all 0.5s ease; }
+        
+        /* 12色の超対称時計盤パレット */
+        #sudoku-app-container .cell[data-num="1"] { color: #ff4d4d; } 
+        #sudoku-app-container .cell[data-num="2"] { color: #ff944d; }
+        #sudoku-app-container .cell[data-num="3"] { color: #ffdb4d; } 
+        #sudoku-app-container .cell[data-num="4"] { color: #94ff4d; }
+        #sudoku-app-container .cell[data-num="5"] { color: #4dff94; } 
+        #sudoku-app-container .cell[data-num="6"] { color: #4dffff; }
+        #sudoku-app-container .cell[data-num="7"] { color: #4d94ff; } 
+        #sudoku-app-container .cell[data-num="8"] { color: #944dff; }
+        #sudoku-app-container .cell[data-num="9"] { color: #ff4dff; }
+        
+        /* 初期配置セル（固定）: より暗い背景 */
+        #sudoku-app-container .cell.fixed { 
+            opacity: 0.9; 
+            cursor: default; 
+            background-color: #0f1419;
+            font-weight: 900;
+        }
+        
+        /* 空欄セル（プレイヤーが入力可能）: 明るい背景で区別 */
+        #sudoku-app-container .cell.editable { 
+            background-color: #2d3748;
+        }
+        
+        /* プレイヤーが入力した数字: さらに明るく */
+        #sudoku-app-container .cell.user-input { 
+            background-color: #374151;
+            font-weight: 600;
+        }
+        
+        /* 解答表示された数字 */
+        #sudoku-app-container .cell.revealed { 
+            background-color: rgba(34, 197, 94, 0.15);
+            color: #22c55e !important;
+            font-weight: 700;
+        }
+        
+        #sudoku-app-container .cell.selected { 
+            background-color: #38bdf8 !important; 
+            color: #0f172a !important; 
+        }
+        
+        #sudoku-app-container .cell.wrong { 
+            background-color: rgba(239, 68, 68, 0.3) !important; 
+            text-decoration: underline; 
+        }
+        
+        /* 3×3ブロックの太線 */
+        #sudoku-app-container .cell:nth-child(3n):not(:nth-child(9n)) {
+            border-right: 2px solid #64748b;
+        }
+        
+        #sudoku-app-container .cell:nth-child(n+19):nth-child(-n+27),
+        #sudoku-app-container .cell:nth-child(n+46):nth-child(-n+54) {
+            border-bottom: 2px solid #64748b;
+        }
+        
+        .shake { animation: shakeAnim 0.4s; }
+        @keyframes shakeAnim { 
+            0%, 100% { transform: translate(0, 0); } 
+            25% { transform: translate(-8px, 4px); } 
+            50% { transform: translate(8px, -4px); } 
+            75% { transform: translate(-4px, 4px); } 
+        }
+        
+        .clear-rotate { transform: rotate(360deg) scale(0); opacity: 0; }
+        
+        #sudoku-app-container #rank-display { 
+            font-size: 32px; 
+            font-weight: bold; 
+            margin-top: 15px; 
+            text-shadow: 0 0 10px #38bdf8; 
+        }
+        
+        .numpad { 
+            margin-top: 10px; 
+            display: flex; 
+            flex-wrap: wrap; 
+            justify-content: center; 
+            gap: 6px; 
+        }
+        
+        .num-btn { 
+            width: 40px; 
+            height: 40px; 
+            background: #1e293b; 
+            border: 1px solid #475569; 
+            color: #e2e8f0; 
+            border-radius: 5px; 
+            cursor: pointer; 
+            font-size: 18px; 
+            font-weight: bold; 
+        }
+        
+        @media (max-width: 450px) {
+            #sudoku-app-container #sudoku-board { 
+                grid-template-columns: repeat(9, 30px); 
+                grid-template-rows: repeat(9, 30px); 
+            }
+            #sudoku-app-container .cell { 
+                width: 30px; 
+                height: 30px; 
+                font-size: 15px; 
+            }
+        }
+    </style>
+
+    <h2>Neon Sudoku (Unique)</h2>
+    <div class="timer" id="timer-display">TIME: 00:00</div>
+    
+    <div class="controls">
+        <button id="btn-easy" onclick="window.sudokuNewGame('easy')">Easy</button>
+        <button id="btn-med" onclick="window.sudokuNewGame('medium')">Normal</button>
+        <button id="btn-hard" onclick="window.sudokuNewGame('hard')">Hard</button>
+        <button class="answer-btn" onclick="window.sudokuShowAnswer()">Answer</button>
+    </div>
+
+    <div id="sudoku-board"></div>
+
+    <div class="numpad">
+        <button class="num-btn" style="color:#ff4d4d" onclick="window.sudokuInput(1)">1</button>
+        <button class="num-btn" style="color:#ff944d" onclick="window.sudokuInput(2)">2</button>
+        <button class="num-btn" style="color:#ffdb4d" onclick="window.sudokuInput(3)">3</button>
+        <button class="num-btn" style="color:#94ff4d" onclick="window.sudokuInput(4)">4</button>
+        <button class="num-btn" style="color:#4dff94" onclick="window.sudokuInput(5)">5</button>
+        <button class="num-btn" style="color:#4dffff" onclick="window.sudokuInput(6)">6</button>
+        <button class="num-btn" style="color:#4d94ff" onclick="window.sudokuInput(7)">7</button>
+        <button class="num-btn" style="color:#944dff" onclick="window.sudokuInput(8)">8</button>
+        <button class="num-btn" style="color:#ff4dff" onclick="window.sudokuInput(9)">9</button>
+        <button class="num-btn" style="background:#334155" onclick="window.sudokuInput(null)">X</button>
+    </div>
+
+    <div id="rank-display"></div>
+    <div id="message" style="margin-top:10px; font-size: 14px; color: #38bdf8;"></div>
+
+    <script>
+        (function() {
+            const container = document.getElementById('sudoku-app-container');
+            const boardElement = container.querySelector('#sudoku-board');
+            const messageElement = container.querySelector('#message');
+            const timerElement = container.querySelector('#timer-display');
+            const rankElement = container.querySelector('#rank-display');
+            const canvas = document.getElementById('sakura-canvas');
+            const ctx = canvas.getContext('2d');
+
+            let solution = [], currentBoard = [], initialBoard = [];
+            let selectedCellIndex = null;
+            let startTime, timerInterval, petals = [];
+            let isGaming = false;
+            let solveCounter = 0;
+
+            // 音声演出
+            const playClearSound = () => {
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                [523.25, 659.25, 783.99, 1046.50].forEach((freq, i) => {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.frequency.setValueAtTime(freq, audioCtx.currentTime + i * 0.1);
+                    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + i * 0.1 + 0.8);
+                    osc.connect(gain); gain.connect(audioCtx.destination);
+                    osc.start(audioCtx.currentTime + i * 0.1); osc.stop(audioCtx.currentTime + i * 0.1 + 0.8);
+                });
+            };
+
+            // Sakura & Animation
+            const initSakura = (count) => {
+                canvas.width = container.offsetWidth; canvas.height = container.offsetHeight;
+                petals = Array.from({length: count}, () => ({
+                    x: Math.random() * canvas.width, y: Math.random() * canvas.height - canvas.height,
+                    r: Math.random() * 4 + 2, s: Math.random() * 2 + 1,
+                    color: `rgba(255, ${Math.random()*50+180}, ${Math.random()*50+200}, 0.8)`
+                }));
+            };
+            const animateSakura = () => {
+                ctx.clearRect(0,0,canvas.width,canvas.height);
+                petals.forEach(p => {
+                    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fillStyle = p.color; ctx.fill();
+                    p.y += p.s; p.x += Math.sin(p.y/20); if(p.y > canvas.height) p.y = -10;
+                });
+                if(!isGaming) requestAnimationFrame(animateSakura);
+            };
+
+            // Sudoku Algorithm
+            const isValid = (grid, r, c, n) => {
+                for(let i=0; i<9; i++) if(grid[r*9+i]===n || grid[i*9+c]===n) return false;
+                let rr=r-r%3, cc=c-c%3;
+                for(let i=0; i<3; i++) for(let j=0; j<3; j++) if(grid[(rr+i)*9+(cc+j)]===n) return false;
+                return true;
+            };
+
+            const solveAndCount = (grid) => {
+                let firstEmpty = grid.indexOf(0);
+                if(firstEmpty === -1) { solveCounter++; return; }
+                let r = Math.floor(firstEmpty/9), c = firstEmpty%9;
+                for(let n=1; n<=9; n++) {
+                    if(isValid(grid, r, c, n)) {
+                        grid[firstEmpty] = n;
+                        solveAndCount(grid);
+                        if(solveCounter > 1) return;
+                        grid[firstEmpty] = 0;
+                    }
+                }
+            };
+
+            const generateFullGrid = (grid) => {
+                let empty = grid.indexOf(0);
+                if(empty === -1) return true;
+                let r=Math.floor(empty/9), c=empty%9;
+                let nums = [1,2,3,4,5,6,7,8,9].sort(()=>Math.random()-0.5);
+                for(let n of nums) {
+                    if(isValid(grid, r, c, n)) {
+                        grid[empty]=n;
+                        if(generateFullGrid(grid)) return true;
+                        grid[empty]=0;
+                    }
+                }
+                return false;
+            };
+
+            window.sudokuNewGame = async function(difficulty) {
+                isGaming = false;
+                messageElement.innerText = "GENERATING UNIQUE PUZZLE...";
+                rankElement.innerText = "";
+                ctx.clearRect(0,0,canvas.width,canvas.height);
+                
+                const targetHoles = { 'easy': 32, 'medium': 45, 'hard': 54 }[difficulty];
+                await new Promise(r => setTimeout(r, 50));
+
+                let grid = Array(81).fill(0);
+                generateFullGrid(grid);
+                solution = [...grid];
+
+                let holesCount = 0;
+                let indices = Array.from({length:81}, (_,i)=>i).sort(()=>Math.random()-0.5);
+
+                for(let idx of indices) {
+                    if(holesCount >= targetHoles) break;
+                    let temp = grid[idx];
+                    grid[idx] = 0;
+                    solveCounter = 0;
+                    solveAndCount([...grid]);
+                    if(solveCounter === 1) {
+                        holesCount++;
+                    } else {
+                        grid[idx] = temp;
+                    }
+                }
+
+                currentBoard = [...grid];
+                initialBoard = [...grid];
+                renderBoard();
+                startTimer();
+                isGaming = true;
+                messageElement.innerText = "PUZZLE READY!";
+                setTimeout(()=>messageElement.innerText="", 2000);
+            };
+
+            const renderBoard = () => {
+                boardElement.innerHTML = '';
+                currentBoard.forEach((num, i) => {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    
+                    if(initialBoard[i] !== 0) {
+                        cell.innerText = num;
+                        cell.setAttribute('data-num', num);
+                        cell.classList.add('fixed');
+                    } else {
+                        cell.classList.add('editable');
+                        if(num !== 0) {
+                            cell.innerText = num;
+                            cell.setAttribute('data-num', num);
+                            cell.classList.add('user-input');
+                        }
+                    }
+                    
+                    cell.onclick = () => {
+                        if(initialBoard[i] !== 0 || !isGaming) return;
+                        boardElement.querySelectorAll('.cell').forEach(c => c.classList.remove('selected'));
+                        selectedCellIndex = i; 
+                        cell.classList.add('selected');
+                    };
+                    boardElement.appendChild(cell);
+                });
+            };
+
+            window.sudokuInput = (num) => {
+                if(selectedCellIndex === null || !isGaming) return;
+                const cell = boardElement.children[selectedCellIndex];
+                
+                currentBoard[selectedCellIndex] = num || 0;
+                cell.innerText = num || '';
+                
+                if(num) {
+                    cell.setAttribute('data-num', num);
+                    cell.classList.add('user-input');
+                } else {
+                    cell.removeAttribute('data-num');
+                    cell.classList.remove('user-input');
+                }
+                
+                if(num && num !== solution[selectedCellIndex]) {
+                    cell.classList.add('wrong');
+                } else {
+                    cell.classList.remove('wrong');
+                    if(!currentBoard.includes(0)) handleClear();
+                }
+            };
+
+            // 解答表示機能
+            window.sudokuShowAnswer = function() {
+                if(!isGaming || !solution.length) {
+                    messageElement.innerText = "Start a game first!";
+                    setTimeout(()=>messageElement.innerText="", 2000);
+                    return;
+                }
+
+                isGaming = false;
+                clearInterval(timerInterval);
+
+                // 進捗計算
+                let correctCount = 0;
+                let totalEditable = 0;
+                
+                for(let i = 0; i < 81; i++) {
+                    if(initialBoard[i] === 0) {
+                        totalEditable++;
+                        if(currentBoard[i] === solution[i]) {
+                            correctCount++;
+                        }
+                    }
+                }
+
+                const progress = totalEditable > 0 ? (correctCount / totalEditable) * 100 : 0;
+
+                // 解答を表示
+                currentBoard.forEach((num, i) => {
+                    if(initialBoard[i] === 0) {
+                        const cell = boardElement.children[i];
+                        currentBoard[i] = solution[i];
+                        cell.innerText = solution[i];
+                        cell.setAttribute('data-num', solution[i]);
+                        cell.classList.remove('user-input', 'wrong');
+                        cell.classList.add('revealed');
+                    }
+                });
+
+                // 進捗メッセージ
+                let msg = "";
+                let color = "#38bdf8";
+                
+                if(progress >= 90) {
+                    msg = "Oshii! (So close!)";
+                    color = "#22c55e";
+                } else if(progress >= 70) {
+                    msg = "Mama-mama! (Not bad!)";
+                    color = "#a855f7";
+                } else if(progress >= 40) {
+                    msg = "Motto Ganbare! (Try harder!)";
+                    color = "#ff944d";
+                } else {
+                    msg = "Ganbatte! (Keep trying!)";
+                    color = "#ff4d4d";
+                }
+
+                rankElement.innerText = msg;
+                rankElement.style.color = color;
+                messageElement.innerText = "Progress: " + Math.round(progress) + "%";
+            };
+
+            function handleClear() {
+                isGaming = false; 
+                clearInterval(timerInterval);
+                const time = Math.floor((Date.now()-startTime)/1000);
+                boardElement.classList.add('shake'); 
+                playClearSound();
+                let rank = time < 180 ? "SHIN-SOKU" : (time < 420 ? "MASTER" : "APPRENTICE");
+                rankElement.innerText = rank;
+                rankElement.style.color = rank === "SHIN-SOKU" ? "#38bdf8" : "#a855f7";
+                initSakura(rank === "SHIN-SOKU" ? 300 : 100); 
+                animateSakura();
+                setTimeout(() => {
+                    Array.from(boardElement.children).forEach((c, i) => 
+                        setTimeout(() => c.classList.add('clear-rotate'), i * 15)
+                    );
+                }, 1000);
+            }
+
+            function startTimer() {
+                clearInterval(timerInterval); 
+                startTime = Date.now();
+                timerInterval = setInterval(() => {
+                    let d = Math.floor((Date.now()-startTime)/1000);
+                    timerElement.innerText = `TIME: ${String(Math.floor(d/60)).padStart(2,'0')}:${String(d%60).padStart(2,'0')}`;
+                }, 1000);
+            }
+
+            document.addEventListener('keydown', e => {
+                if(selectedCellIndex!==null && e.key >= '1' && e.key <= '9') window.sudokuInput(parseInt(e.key));
+                else if(e.key === 'Backspace') window.sudokuInput(null);
+            });
+
+            window.sudokuNewGame('easy');
+        })();
+    </script>
+</div>
